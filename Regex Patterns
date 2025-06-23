@@ -1,0 +1,292 @@
+# Data Loss Prevention (DLP) Regex Patterns
+
+This document provides a comprehensive list of regular expressions (regex) for detecting sensitive data in various categories. Each entry includes a descriptive title, the regex pattern, an explanation of what it matches, example strings that would match or not match the pattern, and notes about potential false positives or negatives. These patterns can help in building DLP rules to identify Personally Identifiable Information (PII), financial information, and authentication credentials or secrets in text. Use them with caution and consider additional context to improve accuracy.
+
+## Personally Identifiable Information (PII)
+
+### Email Address
+
+* **Regex:** `\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`
+* **Explanation:** Matches a standard email address format. It requires one or more characters (letters, digits, or allowed symbols `. _ % + -`) followed by an `@` symbol, then a domain name (letters, digits, `.` or `-`), and a top-level domain of at least 2 letters (like `.com` or `.org`). The word boundaries (`\b`) ensure we capture whole email addresses and not as part of larger strings.
+* **Valid Examples:**
+
+  * `john.doe@example.com`
+  * `user123@test.co.uk`
+  * `my-email+filter@sub.domain.com`
+* **Invalid Examples:**
+
+  * `john.doe@example` (missing top-level domain)
+  * `@nodomain.com` (nothing before `@`)
+  * `user@@domain.com` (double `@` not allowed)
+* **False Positives/Negatives:** This regex covers most common email formats but might flag some strings that look like emails (e.g., `text@12345` could match even if not a real email). It may also miss very unusual email addresses that include uncommon characters or newer top-level domains with only one letter (if any such exist). In practice, it’s a reasonable balance between simplicity and accuracy for typical emails.
+* **Contextual Notes:** To reduce false positives, you can require surrounding context (like `<` `>` or mailto:) or use more strict domain validations. Conversely, allow broader TLD patterns if needed for special cases.
+
+### Phone Number (U.S./International)
+
+* **Regex:** `\b(?:\+?\d{1,3}\s*)?(?:\(?\d{3}\)?[\s.-]?)?\d{3}[\s.-]?\d{4}\b`
+* **Explanation:** Matches phone numbers in common formats, primarily focused on U.S. style with optional country code. The pattern breaks down as: an optional country code up to 3 digits (preceded by `+` and optional whitespace), an optional 3-digit area code (with or without parentheses and possibly followed by space, dot, or dash), then a 3-digit central office code and 4-digit line number, which may be separated by space, dot, or dash. This allows matching formats like `+1 (123) 456-7890`, `123-456-7890`, or `1234567890`.
+* **Valid Examples:**
+
+  * `415-555-1234`
+  * `(415) 555-1234`
+  * `+44 20 7946 0958` (UK number with country code)
+  * `+1 4155551234`
+* **Invalid Examples:**
+
+  * `555-12345` (number too short/incomplete)
+  * `1234-56-7890` (incorrect grouping)
+  * `+1 (123) 45-67890` (misplaced digits)
+* **False Positives/Negatives:** Without additional context, this pattern might match any 7- to 10-digit sequence that happens to be formatted like a phone number, even if it’s not actually a phone number (e.g., part numbers or other IDs with similar format). It may also miss phone numbers written in less common formats or those with extensions. Including context words (like “Tel:” or enclosing in a typical format) can reduce false positives. For international numbers beyond the simple formats, a more extensive pattern or country-specific patterns may be needed.
+* **Contextual Notes:** Telephone numbers vary in format internationally. This regex handles many North American numbers and some international formats with country codes. In a strict DLP policy, you might maintain separate patterns for each country or enforce the presence of a country code for non-US numbers.
+
+### U.S. Social Security Number (SSN)
+
+* **Regex:** `\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b`
+* **Explanation:** Detects U.S. Social Security numbers in the standard `XXX-XX-XXXX` format. It consists of three digits, hyphen, two digits, hyphen, four digits. The pattern uses lookahead constraints to avoid obviously invalid numbers: the first three digits cannot be “000”, “666”, or 900-999 (`(?!000|666|9\d{2})`), the middle two cannot be “00”, and the last four cannot be “0000”. These constraints reflect official SSN rules to reduce false matches.
+* **Valid Examples:**
+
+  * `123-45-6789`
+  * `001-01-0001` (technically valid format, although low numbers like this are uncommon)
+* **Invalid Examples:**
+
+  * `000-12-3456` (invalid, first block “000”)
+  * `666-01-4321` (invalid, disallowed prefix “666”)
+  * `859-00-1234` (invalid, middle block “00”)
+  * `745-12-0000` (invalid, last block “0000”)
+* **False Positives/Negatives:** This regex greatly reduces false positives by excluding patterns that are not assigned as SSNs. However, it might still match a number that fits the pattern but isn’t truly an SSN (for example, a fictitious number that passes the format rules). It will not detect SSNs that are written without hyphens or in non-standard formats (e.g., `123456789` or `SSN: 123-45-6789` without a space; you may need to adjust for such cases or use context).
+* **Contextual Notes:** In practice, SSNs are sensitive and often tracked. If SSNs might appear without hyphens, consider a regex for 9 digits with context (like “SSN” nearby). Always be cautious, as 9-digit numbers are common (could be ZIP+4 codes, phone numbers, etc.), so the hyphenated format and validity checks help pinpoint true SSNs.
+
+### IPv4 Address
+
+* **Regex:** `\b((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)\b`
+* **Explanation:** Matches IPv4 addresses in dotted-decimal notation. This pattern ensures each of the four octets is between 0 and 255. It uses a repeated group for the first three octets, each followed by a literal dot. For each octet, it allows either 250-255 (`25[0-5]`), 200-249 (`2[0-4]\d`), 0-199 (`1?\d?\d` which covers 0-9, 00-99, 100-199). The final octet is matched after the third dot. Word boundaries ensure it matches whole IP segments (so `192.168.0.1` will match, but not a longer string like `192.168.0.1234`).
+* **Valid Examples:**
+
+  * `192.168.0.1`
+  * `255.255.255.255`
+  * `8.8.8.8`
+* **Invalid Examples:**
+
+  * `256.100.50.0` (256 is out of range 0-255)
+  * `192.168.0` (only three octets, incomplete)
+  * `192.168.000.1` (this would actually match because leading zeros are allowed by the pattern; however, some contexts might consider it stylistically invalid – see notes)
+  * `192.168.0.1.5` (fourth octet has an extra segment)
+* **False Positives/Negatives:** The regex is designed to be precise for IPv4. It should not match numbers outside 0-255 for any octet, reducing false positives of arbitrary numeric sequences. One edge case is that it will accept octets with leading zeros (like `192.168.000.001`), which are technically valid IP notation, but if you consider those invalid in your context you’d need a stricter pattern. Another potential false positive is if a number sequence in text coincidentally looks like an IP (e.g., version numbers `10.2.255.1` might match). Conversely, it will not match abbreviated or IPv6 addresses.
+* **Contextual Notes:** IP addresses in logs or text might sometimes be enclosed in brackets or have port numbers (e.g., `192.168.0.1:8080`). If needed, extend the pattern or use additional regex to capture those. IPv6 requires a completely different pattern due to hexadecimal and colon notation and is not covered by this IPv4 regex.
+
+### Passport Number (9-digit)
+
+* **Regex:** `\b[0-9A-Za-z][0-9]{8}\b`
+* **Explanation:** Matches a nine-character passport number commonly used in many countries (for example, the USA and UK passport formats). This pattern allows the first character to be either a digit or a letter, followed by exactly 8 digits, totaling 9 characters. In practice, some passports are purely numeric and some start with a letter followed by digits. For instance, US passports are generally 9 digits, while UK passports often have one letter and 8 digits.
+* **Valid Examples:**
+
+  * `123456789` (US passport format – 9 digits)
+  * `K12345678` (UK passport format – 1 letter + 8 digits)
+* **Invalid Examples:**
+
+  * `A1234567` (only 8 characters total)
+  * `AB12345678` (10 characters total, too long)
+  * `12345678` (8 digits, too short)
+* **False Positives/Negatives:** This pattern will match any 9-character alphanumeric string that starts with a letter or digit and has the rest digits. Without context, it could flag any 9-digit number (which might be something else like a random ID or a SSN without hyphens) or a combination like `X00000000` even if not actually a passport. It also does not validate any country-specific checksum or format beyond length. Additionally, some countries have passport numbers with different lengths or formats (e.g., longer than 9 characters); those would not be detected by this regex.
+* **Contextual Notes:** To improve accuracy, you might pair this regex with contextual keywords (like the word "Passport" nearby) or use country-specific patterns if you know which passport format to expect. For example, a stricter US passport pattern might require all digits, whereas another country might allow letters in certain positions.
+
+## Financial Information
+
+### Credit Card Number (Major Brands)
+
+* **Regex:** `^(?:4[0-9]{12}(?:[0-9]{3})?              # Visa 13 or 16 digits               |  5[1-5][0-9]{14}                       # MasterCard 16 digits (51-55)               |  3[47][0-9]{13}                        # American Express 15 digits               |  3(?:0[0-5]|[68][0-9])[0-9]{11}        # Diners Club 14 digits               |  6(?:011|5[0-9]{2})[0-9]{12}           # Discover 16 digits (6011 or 65xx)               |  (?:2131|1800|35\d{3})\d{11}           # JCB 15-16 digits  
+             )$`
+* **Explanation:** This comprehensive regex matches credit card numbers from major issuers. It uses alternation for different card types, anchoring to the start `^` and end `$` of the string (meaning the entire string should be a card number with no extra characters). The breakdown of the alternatives:
+
+  * Visa: Starts with 4 and has 13 or 16 digits in total. (`4[0-9]{12}(?:[0-9]{3})?`)
+  * MasterCard: Starts with 51–55 or 22–27 (the 22–27 range for newer MasterCard BINs isn’t fully expanded in this example for brevity) and has 16 digits. Here we show 51-55 (`5[1-5]...`).
+  * American Express: Starts with 34 or 37 and has 15 digits.
+  * Diners Club: Various patterns (300-305, 36, 38) and 14 digits.
+  * Discover: Starts with 6011 or 65 and has 16 digits (Discover has other prefixes too, like 644-649 and 622126-622925, which could be added for complete coverage).
+  * JCB: Starts with 2131, 1800 (15 digits) or 35xxx (16 digits).
+    All sections consist solely of digits, with specific leading patterns. The regex does not allow spaces or dashes; it assumes a continuous sequence of digits. (Those could be allowed by modifying the pattern to accept `[ -]` between groups of digits.)
+* **Valid Examples:**
+
+  * `4111111111111111` (Visa 16 digits)
+  * `4012888888881881` (Visa 16 digits, another example)
+  * `378282246310005` (Amex 15 digits)
+  * `5555555555554444` (MasterCard 16 digits)
+  * `6011000990139424` (Discover 16 digits)
+* **Invalid Examples:**
+
+  * `4111-1111-1111-1111` (contains dashes – wouldn’t match unless regex is adjusted to allow them)
+  * `411111111111111` (15 digits starting 4, not 13 or 16, so invalid for Visa and doesn’t match)
+  * `1234567812345678` (16 digits but doesn’t match any allowed issuer prefix)
+  * `3782822463100055` (16 digits starting with 37, Amex should only have 15 digits)
+* **False Positives/Negatives:** The given pattern is quite strict about known card prefixes and lengths, which greatly reduces false positives (random 16-digit numbers that don’t fit a known issuer format won’t match). However, if a number by coincidence fits the pattern, it could still match even if not an actual card (e.g., a test number that resembles a Visa could be caught). As for false negatives, this pattern might not cover all card types or new ranges (for example, it doesn’t explicitly list MasterCard’s 2221-2720 range or newer Discover ranges). Also, it currently doesn’t allow spaces or hyphens, so formatted card numbers like “4111 1111 1111 1111” would not match unless the regex is modified to permit whitespace or punctuation.
+* **Contextual Notes:** Credit card detection in DLP often pairs pattern matching with a checksum verification (Luhn algorithm) for higher accuracy. Regex alone can ensure format correctness, but not that the number is valid. Consider also requiring context (like “credit card number” or “Visa:” nearby) if false positives are a concern. Adjust the regex to include separators if you expect formatted card numbers in text.
+
+### International Bank Account Number (IBAN)
+
+* **Regex:** `\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b`
+* **Explanation:** Matches an International Bank Account Number (IBAN) in its electronic form (no spaces). An IBAN starts with a two-letter country code (uppercase A–Z), followed by two digits (check digits), and then a national bank/account identifier that is alphanumeric. The length of IBANs varies by country (from about 15 up to 31 characters total). This regex requires the country code (2 letters), check digits (2 numbers), and then between 11 and 30 additional alphanumeric characters, which covers the length range of most IBANs (4+11=15 minimum, 4+30=34 maximum). It assumes no spaces; IBANs written with spaces would need those removed or a regex to allow optional spaces.
+* **Valid Examples:**
+
+  * `GB29NWBK60161331926819` (UK IBAN)
+  * `DE91100000000123456789` (Germany IBAN)
+  * `FR1420041010050500013M02606` (France IBAN)
+* **Invalid Examples:**
+
+  * `GB29NWBK6016133192681` (missing a digit at the end, too short)
+  * `ZZ001234567890123456789` (starts with invalid country code “ZZ”)
+  * `GB29NWBK 6016 1331 9268 19` (contains spaces – would not match unless spaces allowed)
+* **False Positives/Negatives:** The pattern might match strings that structurally look like IBANs but aren’t real (for example, a random 20-character alphanumeric string starting with two letters could match). It does not validate the country-specific length or the checksum. Conversely, it might treat an IBAN with lowercase letters as not matching (since we require `[A-Z]` uppercase; adding case insensitivity or \[A-Za-z] could fix that). Also, IBANs presented with spaces (common in print) won’t match unless the regex is adapted to ignore or allow spaces.
+* **Contextual Notes:** For DLP, IBAN detection can be improved by cross-checking the country code against known lengths (each country’s IBAN has a fixed length) and even performing the checksum verification. Using regex in combination with those checks reduces false positives. If allowing spaces in input, consider a regex that permits spaces every 4 characters or simply strip whitespace before matching.
+
+### SWIFT/BIC Code
+
+* **Regex:** `\b[A-Za-z]{6}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?\b`
+* **Explanation:** Detects SWIFT codes (also known as BIC – Bank Identifier Code). A SWIFT code is either 8 or 11 characters. This pattern requires 6 letters followed by 2 alphanumeric characters, and allows an optional 3 alphanumeric characters at the end (making 8 or 11 total). Specifically: the first 4 letters are the bank code (only letters), next 2 letters are the country code (only letters), next 2 can be letters or digits (location code), and the optional last 3 are branch code (letters or digits). We’ve allowed letters in all of the first 6 positions and alphanumeric in the rest, which covers the standard.
+* **Valid Examples:**
+
+  * `DEUTDEFF` (8-char SWIFT for Deutsche Bank Germany)
+  * `NWBKGB2L` (8-char SWIFT for NatWest Bank UK)
+  * `DEUTDEFF500` (11-char SWIFT with branch code)
+  * `UNCRIT2B912` (11-char SWIFT code)
+* **Invalid Examples:**
+
+  * `DEUTDEFFF` (9 characters, SWIFT codes are 8 or 11 only)
+  * `ABCDUS1` (7 characters, too short)
+  * `BANKgb22` (contains lowercase letters “gb”, typically SWIFT is communicated in uppercase; also 4 letters + 2 letters + 2 digits = 8, actually this might match if case insensitive, but it’s lowercase which our pattern would match because we allow \[A-Za-z], see notes)
+  * `1234US33` (starts with digits, first 4 must be letters for bank code)
+* **False Positives/Negatives:** The regex might match an 8 or 11 character string of the right mix even if it’s not a real BIC (e.g., `AAAAUS00` would fit the pattern but might not exist). It doesn’t check that the country code is an actual ISO country or that the bank code is assigned. It’s also case-sensitive as written for letters, so it wouldn’t match lowercase input unless case-insensitive flag is used (we allowed \[A-Za-z] to cover both cases, meaning it *will* match lowercase, which could be fine). False positives are not too likely in free text due to the specific length and letter placement, but could occur with certain product codes or IDs. False negatives might occur if someone includes spaces or other delimiters within the code, or if the code is part of a longer string without word boundaries.
+* **Contextual Notes:** SWIFT codes are typically all uppercase when printed. You might want to enforce uppercase letters in the regex (`[A-Z]`) and use case-insensitive matching if needed. Including context (like expecting the term “SWIFT” or “BIC” nearby) can further ensure that matches are actual SWIFT codes. Combining with an internal list of known country codes (to check the middle two letters) can slightly reduce bogus matches.
+
+### U.S. Employer Identification Number (EIN)
+
+* **Regex:** `\b\d{2}-\d{7}\b`
+* **Explanation:** Matches a U.S. Employer Identification Number, which is a federal tax identification number for businesses. The format is two digits, a hyphen, and seven digits (nine digits total, similar to SSN length but grouped 2-7). For example, `12-3456789`. The regex is straightforward: exactly 2 digits, a literal dash, and exactly 7 digits.
+* **Valid Examples:**
+
+  * `12-3456789`
+  * `98-7654321`
+* **Invalid Examples:**
+
+  * `1-23456789` (only one digit before the dash)
+  * `123-456789` (three digits before dash, not allowed)
+  * `12-34567890` (seven digits after dash is correct, but here there are eight)
+* **False Positives/Negatives:** On its own, this pattern will match any 2-7 digit sequence with a hyphen, which could appear in contexts that are not EINs (for example, a part number `12-3456789` or a formatted sequence in any document). EINs have some assignment rules (certain prefixes are not used, etc.) that this regex doesn’t account for. Also, some other identification numbers might share the 2-7 format by coincidence. As a false negative, if an EIN is written without the hyphen (e.g., `123456789` as a continuous string), this regex would not catch it, whereas it might actually be an EIN.
+* **Contextual Notes:** Often EINs are presented with labels like “EIN:” or “Employer ID#”. Including such context in a regex or as an additional check can improve accuracy. Also, note the potential confusion with SSNs: an EIN in the format `12-3456789` might resemble an SSN `123-45-6789` if digits are shifted; however, SSN uses 3-2-4 grouping, so the hyphen placement differs. This regex’s specificity to 2-7 grouping helps differentiate EIN from SSN in text.
+
+## Authentication Credentials & Secrets
+
+### AWS Access Key ID
+
+* **Regex:** `\bAKIA[0-9A-Z]{16}\b`
+* **Explanation:** Identifies an AWS Access Key ID. These are 20-character strings that always begin with the prefix “AKIA” (for standard AWS IAM user keys – note that other prefixes like ASIA, AGPA, etc., can exist for different types of keys, but “AKIA” is most common). After “AKIA”, the remaining 16 characters are uppercase letters or digits. This regex enforces that exact structure: `AKIA` followed by 16 alphanumeric (digits 0-9 or capital A-Z). The word boundary ensures we catch the token as a distinct chunk.
+* **Valid Examples:**
+
+  * `AKIAIOSFODNN7EXAMPLE` (20 characters total, starting with AKIA…)
+  * `AKIA1234567890ABCD`
+* **Invalid Examples:**
+
+  * `AKIAIOSFODNN7EXAMPLEX` (21 characters, too long)
+  * `ASIAIOSFODNN7EXAMPLE` (starts with ASIA instead of AKIA – not matched by this pattern)
+  * `AKIaIOSFODNN7EXAMPLE` (lowercase “a” in AKIA, the pattern expects uppercase exactly)
+* **False Positives/Negatives:** Because of the specific prefix and length, false positives are rare – it’s unlikely for a random string to fit this format exactly unless it is an actual AWS key or a very coincidental code. A possible false positive could be something deliberately formatted to look like an AWS key in documentation or test data. False negatives can occur for AWS keys that don’t start with AKIA (for example, temporary security credentials often start with “ASIA” for STS assumed roles, or older ones could start differently). Those wouldn’t match this regex. If you need to catch those, you’d have to adjust the pattern to include alternative prefixes.
+* **Contextual Notes:** AWS Access Key IDs often come with a corresponding Secret Access Key (which is a 40-character secret). If one is present, the other often is too. Leaked keys might appear in configuration files or code. This pattern is case-sensitive; AWS keys are case-sensitive and typically all alphanumeric uppercase. Ensure no extra characters (like quotes) are included in the match unless intentionally part of the regex.
+
+### AWS Secret Access Key
+
+* **Regex:** `\b[0-9A-Za-z+/]{40}\b`
+* **Explanation:** Detects the AWS Secret Access Key, which is a 40-character string. AWS secrets can include uppercase, lowercase, digits, and the characters `+` and `/` (they are essentially base64, without padding `=`). This regex looks for any sequence of 40 characters from that allowed set. The word boundary helps ensure it’s isolated (for instance, it won’t accidentally match 40 characters that are part of a longer string without boundaries).
+* **Valid Examples:**
+
+  * `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` (this is an example format with 40 chars)
+  * `Aa0+/ABCDEFGHIJ1234567890+/ABCDEFGHIJ12` (40 characters including + and /)
+* **Invalid Examples:**
+
+  * `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKE` (39 characters, one short)
+  * `wJalrXUtnFEMI-K7MDENG_bPxRfiCYEXAMPLEKEY` (40 chars but contains `-` and `_` instead of `+` or `/`; these are not in the allowed set for AWS secrets)
+  * `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY1` (41 characters, too long)
+* **False Positives/Negatives:** A 40-character string of this nature is relatively distinctive, but it could still match other random 40-length strings that use the same character set (for example, an unrelated base64 blob of length 40, or an OAuth token of similar composition). That could be a false positive if the context isn’t actually an AWS secret. On the flip side, this regex won’t catch secrets if they’re not exactly 40 characters or if they include characters outside this set. In practice, AWS secret keys are exactly 40 and confined to this character range, so the main false negatives would be if the secret is presented with quotes or other delimiters (e.g., `"wJalrXUtnFEMI...KEY"` might not match unless the quotes are not included in the matching or the regex is adjusted to handle them).
+* **Contextual Notes:** Often an AWS Access Key and Secret Key appear together (for example, in configuration files as `AWS_SECRET_ACCESS_KEY = "..."`). If possible, look for “AWS” or “SECRET” keywords around the string to add confidence. Also consider that other cloud providers might have secrets of similar format but different length; this regex is specific to AWS’s 40-char secret.
+
+### Google API Key
+
+* **Regex:** `\bAIza[0-9A-Za-z_-]{35}\b`
+* **Explanation:** Matches Google API keys used for services like Google Maps, YouTube Data API, etc. These keys typically start with the characters “AIza” (note the capital A and I, lowercase z, a) and are followed by 35 more characters which can be letters, digits, hyphens, or underscores. That makes 39 characters total. The regex enforces the `AIza` prefix exactly, then allows any mix of the allowed characters for the remaining length.
+* **Valid Examples:**
+
+  * `AIzaSyA-1B2C3DefGHIjklMnOpQR_stUvWxYZ0` (39-character example key)
+  * `AIza1234_-AbCdEfGhIjKlMnOpQrStUvWxYZa`
+* **Invalid Examples:**
+
+  * `AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4OPQ` (starts with `AIza` capital I instead of `AIza` exactly? Actually this starts with AIza but if any letter casing is off or missing one char it fails – e.g., missing the leading A or the pattern must match exactly 'A','I','z','a')
+  * `AIzaSyA1B2C3D4EFGH567IJKLMno_pqrstuvwx` (this is 40 chars total if the prefix included, too long)
+  * `AIzaSy1234567890abcdefghijklmnopqrst` (prefix OK but too short if less than 39 total)
+* **False Positives/Negatives:** The specificity of the prefix makes false positives rare; it’s uncommon for a random string to begin with “AIza” and have the right length. A potential false positive might be example keys in documentation or dummy text that just happen to fit the pattern. False negatives could occur if Google changes their key format or if the key is presented differently (for instance, wrapped in quotes or with line breaks, though the regex will still catch it if the quotes aren’t part of the \b word characters). Another edge case: some older or different Google API keys might not start with AIza (though most do), or might have a slightly different length – those wouldn’t match this regex.
+* **Contextual Notes:** Google API keys often appear in code (JavaScript, Python, etc.) or configuration files after a variable like `API_KEY` or similar. While this regex will pluck out the key by itself, using it in combination with context (like `apikey=`) can improve confidence. Remember that just finding a string that looks like a key doesn’t guarantee it’s valid or active – but from a DLP perspective, any string that matches this pattern is worth treating as sensitive.
+
+### Slack Bot/User Token (OAuth Token)
+
+* **Regex:** `\bxoxb-[0-9]{11}-[0-9]{11}-[0-9A-Za-z]{24}\b`
+* **Explanation:** Identifies a Slack API token (specifically, the format for bot tokens obtained via OAuth v2). Slack tokens typically start with a known prefix followed by groups of numbers. In this regex, `xoxb-` is the prefix for a bot token. It’s followed by an 11-digit string, another hyphen, another 11-digit string, another hyphen, and then a 24-character alphanumeric string. This structure is characteristic of Slack bot tokens (user tokens are similar but start with `xoxp-`). The pattern ensures the token is isolated with word boundaries.
+* **Valid Examples:**
+
+  * `xoxb-12345678901-10987654321-AbCdEfGhIjKlMnOpQrStUvWx`
+  * `xoxb-00011122233-44455566677-aaaaaaaaaaaaaaaaaaaaaaaa`
+* **Invalid Examples:**
+
+  * `xoxb-1234567890-1234567890-abcdef...` (only 10 digits in each numeric section instead of 11)
+  * `xoxp-12345678901-10987654321-AbCdEfGhIjKlMnOpQrStUvWx` (starts with xoxp, which this regex doesn’t cover because it’s specifically for xoxb; a user token with xoxp prefix wouldn’t match)
+  * `xoxb-12345678901-10987654321-ABCDEFGHIJKLmnopqrstuvwx` (24 characters but if any are outside 0-9A-Za-z, e.g., a symbol, it fails; here all are alphanumeric so this example actually is valid format-wise, but if we had a symbol it would be invalid)
+* **False Positives/Negatives:** It’s unlikely to get a false positive on this regex because of the very specific structure (the chance of random text looking like `xoxb-` followed by those exact digit counts and letters is extremely low). A possible false positive could be a dummy token listed in documentation, but those are usually sanitized. False negatives would include other Slack token formats not covered: for example, user tokens (`xoxp-...` with the same structure) would not match this pattern unless you adjust it. Slack has other token types (such as newer tokens starting with `xoxe-` for token rotation, which have different format). Those would need separate patterns. If someone included spaces or broke the token across lines, this regex wouldn’t catch it as written because it expects one continuous token.
+* **Contextual Notes:** Slack tokens are often found in scripts, config files, or even chat logs. They should be kept secret as they grant access to Slack APIs. For DLP, you might want to include both `xoxb-` and `xoxp-` patterns (and possibly others) to catch any Slack token. The above pattern can be generalized with a character class if needed (e.g., `xox[bp]-...` to cover both bot and user tokens since both follow the 11-11-24 format). Always update your detection patterns as Slack evolves their token formats.
+
+### JSON Web Token (JWT)
+
+* **Regex:** `\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`
+* **Explanation:** Recognizes JWTs (JSON Web Tokens), which are typically three base64url-encoded segments separated by periods. This regex looks for the pattern of `xxxxx.yyyyy.zzzzz` where each segment is composed of characters commonly found in base64url encoding: uppercase, lowercase, digits, hyphen (`-`) and underscore (`_`). It requires at least one character in each segment and exactly two literal dots separating them. JWTs often appear as a long string with two dots. We use word boundaries to ensure we capture a standalone token (though JWTs might include non-word characters like `.` which don’t influence `\b` in the middle – primarily the boundaries will act at token ends).
+* **Valid Examples:**
+
+  * `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Ikpv aG4gRG9lIiwiYWRtaW4iOnRydWV9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`
+    *(This example is a formatted JWT with line break for display; it would be one continuous line in reality. It consists of a header `eyJhb...IkpXVCJ9`, payload `eyJzd...OnRydWV9`, and signature `SflKx...w5c`.)*
+  * `eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.abcdefghijklmnop.ABCDEFGHIJKLMNOPQRSTUVWXYZ123456` (structurally three segments)
+* **Invalid Examples:**
+
+  * `eyJhbgciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0...` (only two segments with one dot)
+  * `abc.def.ghi.jkl` (four segments / three dots – JWT should have exactly two dots)
+  * `eyJ!@#$%^&*().eyJasd123.ASDF1234` (contains illegal characters like `!@#$` in first segment)
+* **False Positives/Negatives:** This regex will match any three-part string of the allowed characters separated by dots. It doesn’t verify that the first part decodes to valid JSON or that the token is correctly formatted beyond the character set. False positives could occur if some text happens to have two dots with URL-safe base64-like content; for example, certain encoded data or even some formatted IDs might by chance fit the pattern. However, it’s relatively specific. False negatives may occur for tokens with padding or different encoding (standard JWTs shouldn’t have `=` padding, but if they did, our pattern would currently not match because `=` is not in the allowed set). Also, if a JWT is embedded in a longer string without clear boundaries or is broken by whitespace, it might not match as one token.
+* **Contextual Notes:** JWTs are often found in authorization headers (`Authorization: Bearer <token>`) or embedded in web pages or logs. You might use surrounding context like the word "Bearer" or a JSON key like `"id_token": "` to more confidently identify JWTs. Additionally, consider that JWTs can be very long; if you want to impose length limits (say, min length to avoid matching trivial “a.b.c”), you could modify the regex accordingly. But generally, the presence of two periods and a large character set is a strong indicator of a JWT.
+
+### PEM Private Key Block
+
+* **Regex:** `-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED |)?PRIVATE KEY-----`
+* **Explanation:** Detects the beginning of a PEM-formatted private key. In PEM files, private keys (and other cryptographic materials) are enclosed in "BEGIN ... END" blocks. This regex specifically targets the header of a private key. It will match strings like `-----BEGIN PRIVATE KEY-----` as well as variations that include a key type after "BEGIN" (for example `-----BEGIN RSA PRIVATE KEY-----` or `-----BEGIN ENCRYPTED PRIVATE KEY-----`). The optional non-capturing group `(?:RSA |DSA |EC |OPENSSH |ENCRYPTED |)?` accounts for common key type prefixes and the trailing space, if present. By matching this, you effectively catch any occurrence of a private key being present in text, since the key body follows on subsequent lines.
+* **Valid Examples:**
+
+  * `-----BEGIN PRIVATE KEY-----`
+  * `-----BEGIN RSA PRIVATE KEY-----`
+  * `-----BEGIN ENCRYPTED PRIVATE KEY-----`
+* **Invalid Examples:**
+
+  * `-----BEGIN PUBLIC KEY-----` (public key, not private)
+  * `-----BEGIN PRIVATE KEY----` (dashes off – the regex expects exactly 5 before and after and the closing -----)
+  * `---BEGIN PRIVATE KEY---` (not the exact format with 5 dashes)
+* **False Positives/Negatives:** This regex is very specific to the literal PEM header format. False positives are unlikely since any match strongly indicates a private key block. The only scenario might be someone writing an example in documentation or a comment that includes that header line, but even then it’s usually indicative of sensitive material. False negatives would occur if a key is present but not in PEM format (for example, in a different encoding or missing the header/footer lines). Also, if the text has extra characters before `-----BEGIN` (no word boundary here, but since we look for that exact sequence of dashes and text, it should be fine anywhere in the text).
+* **Contextual Notes:** In practice, if this header is found, it’s critical (it means an actual private key is very likely present or being shared). DLP solutions often search for these markers to immediately flag or block content. We don’t need the entire key in regex (that would be huge and unnecessary); catching the header is sufficient. You might also consider scanning for `-----BEGIN OPENSSH PRIVATE KEY-----` which is covered by this pattern, or other key types like `EC` or `DSA` which are also covered. The presence of "ENCRYPTED" indicates the private key is password-protected, but it’s still sensitive.
+
+### Hardcoded Password Assignment
+
+* **Regex:** `(?i)\bpassword\s*[:=]\s*["'][^"'\r\n]{6,}["']`
+* **Explanation:** Tries to identify places in code or configuration where a password is being assigned or specified in plain text. This regex operates case-insensitively (`(?i)`) to catch “password” in any case. It looks for the word “password” as a separate token (`\bpassword`) followed by an optional whitespace and either a `:` or `=` (common in configs like `password: "secret"` or code like `password = 'secret'`). After that, it allows optional whitespace, then an opening quote (single or double), then at least 6 characters that are not quotes or newlines (the actual password content), and a closing quote. We require a minimum length (6) for the password to avoid matching trivial or empty passwords; you might adjust this length based on policy. The pattern does not capture the password, it just matches the entire assignment string.
+* **Valid Examples:**
+
+  * `password="P@ssw0rd!"`
+  * `Password : 'supersecret123'`
+  * `db_password = "hunter2"`
+* **Invalid Examples:**
+
+  * `password = ""` (empty password, nothing between quotes fails the `{6,}` length requirement)
+  * `passwd="secret"` (uses `passwd` instead of the full word “password”; our regex specifically looks for “password”)
+  * `userpassword="abc12345"` (word “password” is part of a larger token `userpassword` without a word boundary, so it would not match in this pattern)
+  * `password = hunter2` (no quotes around the value – our regex expects quotes)
+* **False Positives/Negatives:** This regex can flag lines in code that look like password assignments. False positives might include lines in documentation or examples that use “password:” or “password=” but not actually as a real secret (or the value is dummy but matches the pattern). It might also match things like `password="CHANGE_ME"` which is a default rather than a real secret (still sensitive to catch, perhaps). False negatives: It won’t catch if the password is not in quotes (e.g., `password = secret` without quotes, which some config formats allow), or if a different variable name is used (e.g., “passwd” or “pwd” or a specific service key like `smtp_password`). It also won’t catch concatenated or computed passwords in code, or cases where the word “password” isn’t near the value. Additionally, if “password” is part of a longer word (like `dbpassword`), the `\b` might cause it not to match.
+* **Contextual Notes:** Use of this pattern should be complemented with variations for other common identifiers (pwd, secret, key, etc.) depending on what you want to catch. Removing the requirement for quotes could catch unquoted assignments but would significantly increase false positives (matching things that aren’t actually the full value). It’s often useful in combination with code scanning in Git repositories to prevent committing credentials. Consider scanning for specific config file patterns separately (for example, in YAML, it might be `password: plainText` without quotes). Adjust case sensitivity or word boundaries if needed to suit your codebase conventions.
